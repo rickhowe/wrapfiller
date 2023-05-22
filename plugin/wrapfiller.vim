@@ -1,7 +1,7 @@
 " wrapfiller.vim: Align each line exactly between windows even if wrapped
 "
-" Last Change: 2023/02/19
-" Version:     1.0
+" Last Change: 2023/05/22
+" Version:     2.0
 " Author:      Rick Howe (Takumi Ohtani) <rdcxy754@ybb.ne.jp>
 " Copyright:   (c) 2023 Rick Howe
 " License:     MIT
@@ -10,7 +10,7 @@ if exists('g:loaded_wrapfiller') ||
             \!(has('textprop') && has('patch-9.0.1067') || has('nvim-0.6.0'))
   finish
 endif
-let g:loaded_wrapfiller = 1.0
+let g:loaded_wrapfiller = 2.0
 
 let s:save_cpo = &cpoptions
 set cpo&vim

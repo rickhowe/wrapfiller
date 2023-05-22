@@ -28,15 +28,24 @@ screen position.
 
 ![demo02](demo02.png)
 
+This plugin, when called, only checks the limited range of the current visible
+and its upper/lower lines of a window, not all the text lines, to draw the
+virtual lines. Each time a cursor is moved on to other ranges upon scrolling
+or searching, or each time a window is resized, the `WinScrolled` event is
+triggered and then the new lines will be checked in that limited range and the
+virtual lines will be updated. Which means, independently of the file size,
+the number of lines to be checked and then the time consumed are always
+constant.
+
 You can also use the `list` option for a normal non-diff mode window. This
 plugin is called to find all the list mode windows, show the required virtual
 lines, and align each line between windows.
 
 ![demo03](demo03.png)
 
-When screen contents has changed by resizing window or changing some options
-such as `number`, `linebreak`, and `listchars`, you can set the `diff` or
-`list` option again on any window to redraw the virtual lines.
+When screen contents has changed by some options such as `number`,
+`linebreak`, and `listchars`, you can set the `diff` or `list` option again on
+any window to redraw the virtual lines.
 
 ### Options
 
@@ -46,3 +55,9 @@ such as `number`, `linebreak`, and `listchars`, you can set the `diff` or
   | --- | --- |
   | 1 | enable (default) |
   | 0 | disable |
+
+### Requirements
+
+This plugin requires:
+* the textprop (text property) feature and patch-9.0.1067 in Vim 9.0
+* the extmark (extended mark) functions in Nvim 0.6
