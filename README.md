@@ -20,16 +20,17 @@ lines between windows.
 This plugin is called each time the `diff` option is set or reset on a window.
 It counts the number of screen lines required to align the position of each
 line between all the diff mode windows in a tab page, and then fill them with
-virtual lines on each window. As for those virtual lines, the "virtual text",
-which has been implemented in some of vim post-9.0 patches and nvim 0.6.0,
-is used to draw `<<<` in `hl-NonText` highlight "below" the actual lines.
-Accordingly, each corresponding line will be aligned side-by-side on the same
-screen position.
+virtual lines on each window. As a virtual line, the "virtual text" feature,
+implemented in a vim post-9.0 patch and nvim 0.6.0, is used. Those virtual
+lines are shown as diff filler lines, specified in `diff` item in `fillchars`
+option (default: `-`) using `hl-DiffDelete` highlight, at "below" the actual
+lines. Accordingly, each corresponding line will be aligned side-by-side on
+the same screen position.
 
 ![demo02](demo02.png)
 
 This plugin, when called, only checks the limited range of the current visible
-and its upper/lower lines of a window, not all the text lines, to draw the
+and its upper/lower lines of a window, not all the text lines, to show the
 virtual lines. Each time a cursor is moved on to other ranges upon scrolling
 or searching, or each time a window is resized, the `WinScrolled` event is
 triggered and then the new lines will be checked in that limited range and the
@@ -38,8 +39,8 @@ the number of lines to be checked and then the time consumed are always
 constant.
 
 You can also use the `list` option for a normal non-diff mode window. This
-plugin is called to find all the list mode windows, show the required virtual
-lines, and align each line between windows.
+plugin is called to find all the list mode windows, show `<<<` in `hl-NonText`
+highlight as virtual lines, and align each line between windows.
 
 ![demo03](demo03.png)
 

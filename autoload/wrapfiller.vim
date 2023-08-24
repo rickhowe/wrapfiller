@@ -1,7 +1,7 @@
 " wrapfiller.vim: Align each line exactly between windows even if wrapped
 "
-" Last Change: 2023/05/22
-" Version:     2.0
+" Last Change: 2023/08/24
+" Version:     2.1
 " Author:      Rick Howe (Takumi Ohtani) <rdcxy754@ybb.ne.jp>
 " Copyright:   (c) 2023 Rick Howe
 " License:     MIT
@@ -9,43 +9,53 @@
 let s:save_cpo = &cpoptions
 set cpo&vim
 
-let s:wpf = {'tl': 'wrapfiller',
-            \'hl': get(g:, 'WFHighlight', 'NonText'),
-            \'fs': get(g:, 'WFFillstring', '<<<'),
-            \'rf': get(g:, 'WFRangefactor', 1)}
+let s:wpf = {'tl': 'wrapfiller', 'ht': {'list': ['NonText', '<<<'],
+                      \'diff': ['DiffDelete', repeat((&fillchars =~ 'diff') ?
+                        \matchstr(&fillchars, 'diff:\zs.') : '-', &columns)]}}
 if has('nvim')
   let s:wpf.ns = nvim_create_namespace(s:wpf.tl)
 else
-  if empty(prop_type_get(s:wpf.tl))
-    call prop_type_add(s:wpf.tl, {'highlight': s:wpf.hl})
-  else
-    call prop_type_change(s:wpf.tl, {'highlight': s:wpf.hl})
-  endif
+  for [tn, ht] in items(s:wpf.ht)
+    let tn = s:wpf.tl . '_' . tn
+    if !empty(prop_type_get(tn))
+      call prop_type_delete(tn)
+    endif
+    call prop_type_add(tn, {'highlight': ht[0]})
+  endfor
 endif
 
 function! wrapfiller#WrapFiller(op) abort
   let wd = gettabinfo(tabpagenr())[0].windows
   call s:VirtLineDel(wd, 1)
   if get(t:, 'WrapFiller', get(g:, 'WrapFiller', 1))
-    call filter(wd, 'getwinvar(v:val, "&" . a:op)')
-    if 1 < len(wd) | call s:VirtLineAdd(wd, a:op) | endif
+    for op in ['diff', 'list']
+      let wx = filter(copy(wd), 'getwinvar(v:val, "&" . op)')
+      if 1 < len(wx) | call s:VirtLineAdd(wx, op) | break | endif
+    endfor
   endif
 endfunction
 
 function! s:VirtLineAdd(wd, op) abort
   let zz = {} | for wn in a:wd | let zz[wn] = {} | endfor
   if a:op == 'diff'
-    let zz.do = &diffopt | let zz.fi = (zz.do =~ 'filler')
-    if !zz.fi | let &diffopt .= (empty(zz.do) ? '' : ',') . 'filler' | endif
+    if &diffopt !~ 'filler'
+      echohl WarningMsg | echo "'filler' not found in &diffopt" | echohl None
+      return
+    endif
+    " set a max &foldlevel commonly in all windows
+    let zz.fv = -1
+    for wn in a:wd
+      let zz[wn].fv = getwinvar(wn, '&foldlevel')
+      if zz.fv < zz[wn].fv | let zz.fv = zz[wn].fv | endif
+    endfor
+    for wn in a:wd | call setwinvar(wn, '&foldlevel', zz.fv) | endfor
     " find a common diff unhighlighted base start line between windows
     let tb = {}
     let [tn, bn] = [0, 0]
     for wn in a:wd
-      let zz[wn].fv = getwinvar(wn, '&foldlevel')
-      call setwinvar(wn, '&foldlevel', 0)
       call win_execute(wn, 'let [fl, tl, bl, ll] =
                                     \[1, line("w0"), line("w$"), line("$")]')
-      let wh = winheight(wn) * s:wpf.rf
+      let wh = winheight(wn)
       let [tl, bl] = [max([tl - wh, 1]), min([bl + wh, ll])]
       let se = getwinvar(wn, s:wpf.tl)
       if !empty(se)
@@ -93,12 +103,12 @@ function! s:VirtLineAdd(wd, op) abort
       let ln = zz[wn].sl
       while ln <= zz[wn].el + 1
         call win_execute(wn, 'let fl = foldlevel(ln)')
-        if fl == 0
-          call win_execute(wn, 'let fi = diff_filler(ln)')
-          if 0 < fi && (zz.sx || zz[wn].sl <= ln - 1)
-            let lr[wn] += repeat([[ln - 1, zz.fi]], fi)
+        if fl <= zz.fv
+          if zz.sx || zz[wn].sl < ln
+            call win_execute(wn, 'let df = diff_filler(ln)')
+            if 0 < df | let lr[wn] += repeat([[-(ln - 1), 1]], df) | endif
           endif
-          call win_execute(wn, 'let rc = s:CountRows(ln, wn)')
+          call win_execute(wn, 'let rc = s:CountRows(wn, ln)')
           let lr[wn] += [[ln, rc]]
         else
           call win_execute(wn, 'let fc = foldclosedend(ln)')
@@ -107,15 +117,15 @@ function! s:VirtLineAdd(wd, op) abort
         let ln += 1
       endwhile
       unlet lr[wn][-1]
+      " reset to original &foldlevel
       call setwinvar(wn, '&foldlevel', zz[wn].fv)
     endfor
-    if !zz.fi | let &diffopt = zz.do | endif
-  else
+  elseif a:op == 'list'
     let [sl, el] = [v:numbermax, 0]
     for wn in a:wd
       call win_execute(wn, 'let [tl, bl, ll] =
                                         \[line("w0"), line("w$"), line("$")]')
-      let wh = winheight(wn) * s:wpf.rf
+      let wh = winheight(wn)
       let [tl, bl] = [max([tl - wh, 1]), min([bl + wh, ll])]
       if tl < sl | let sl = tl | endif
       if bl > el | let el = bl | endif
@@ -129,13 +139,13 @@ function! s:VirtLineAdd(wd, op) abort
     for wn in a:wd
       let lr[wn] = []
       for ln in range(zz[wn].sl, zz[wn].el)
-        call win_execute(wn, 'let rc = s:CountRows(ln, wn)')
+        call win_execute(wn, 'let rc = s:CountRows(wn, ln)')
         let lr[wn] += [[ln, rc]]
       endfor
     endfor
   endif
   " compare rows between windows and count required virtual lines
-  let vl = {} | for wn in a:wd | let vl[wn] = {} | endfor
+  let vl = {} | for wn in a:wd | let vl[wn] = [] | endfor
   let ix = 0
   while 1
     let rn = {}
@@ -146,23 +156,18 @@ function! s:VirtLineAdd(wd, op) abort
     let rx = max(values(rn))
     for wn in keys(rn)
       let rc = rx - rn[wn]
-      if 0 < rc
-        let ln = lr[wn][ix][0]
-        if !has_key(vl[wn], ln) | let vl[wn][ln] = 0 | endif
-        let vl[wn][ln] += rc
-      endif
+      if 0 < rc | let vl[wn] += [[rc, lr[wn][ix][0]]] | endif
     endfor
     let ix += 1
   endwhile
   " draw virtual lines on each window and set WinScrolled event
   for wn in a:wd
-    let bn = winbufnr(wn)
-    for [ln, rc] in items(vl[wn])
-      let [ln, ab] = (ln == 0) ? [1, 1] : [ln, 0]
-      for nn in range(rc) | call s:VLAdd(bn, ln, ab) | endfor
+    for [rc, ln] in vl[wn]
+      let [ln, ab] = (ln == 0) ? [1, 1] : [abs(ln), 0]
+      while 0 < rc | call s:VLAdd(wn, a:op, ln, ab) | let rc -= 1 | endwhile
     endfor
-    call execute('autocmd ' . s:wpf.tl . ' WinScrolled <buffer=' . bn .
-                                    \'> call s:VirtLineUpd(''' . a:op . ''')')
+    call execute('autocmd ' . s:wpf.tl . ' WinScrolled <buffer=' .
+                    \winbufnr(wn) . '> call s:VirtLineUpd(''' . a:op . ''')')
     call setwinvar(wn, s:wpf.tl, {'sl': zz[wn].sl, 'el': zz[wn].el})
   endfor
 endfunction
@@ -172,11 +177,12 @@ function! s:GetCleanLines(sl, el) abort
                         \'diff_hlID(v:val, 1) == 0 && foldlevel(v:val) == 0')
 endfunction
 
-function! s:CountRows(ln, wn) abort
+function! s:CountRows(wn, ln) abort
   let rc = 1
-  if &wrap
+  if getwinvar(a:wn, '&wrap')
     let wi = getwininfo(a:wn)[0]
-    let vc = virtcol([a:ln, '$']) + (&list && &listchars =~ 'eol') - 1
+    let vc = (virtcol([a:ln, '$']) - 1) +
+                            \(getwinvar(a:wn, '&list') && &listchars =~ 'eol')
     let rc += (&cpoptions =~# 'n') ? (wi.textoff + vc - 1) / wi.width :
                                           \(vc - 1) / (wi.width - wi.textoff)
   endif
@@ -185,9 +191,9 @@ endfunction
 
 function! s:VirtLineDel(wd, all) abort
   for wn in a:wd
-    let bn = winbufnr(wn)
-    call s:VLDel(bn)
-    call execute('autocmd! ' . s:wpf.tl . ' WinScrolled <buffer=' . bn . '>')
+    call s:VLDel(wn)
+    call execute('autocmd! ' . s:wpf.tl . ' WinScrolled <buffer=' .
+                                                          \winbufnr(wn) . '>')
     if a:all
       let wv = getwinvar(wn, '')
       if has_key(wv, s:wpf.tl) | unlet wv[s:wpf.tl] | endif
@@ -211,30 +217,40 @@ function! s:VirtLineUpd(op) abort
   endif
 endfunction
 
-if has('nvim')
-function! s:VLAdd(bn, ln, ab) abort
-  call nvim_buf_set_extmark(a:bn, s:wpf.ns, a:ln - 1, 0,
-                                    \{'virt_lines': [[[s:wpf.fs, s:wpf.hl]]],
+function! s:VLAdd(wn, op, ln, ab) abort
+  let bn = winbufnr(a:wn)
+  if has('nvim')
+    call nvim_buf_set_extmark(bn, s:wpf.ns, a:ln - 1, 0,
+                  \{'virt_lines': [[[s:wpf.ht[a:op][1], s:wpf.ht[a:op][0]]]],
                                 \'virt_lines_above': a:ab ? v:true : v:false})
-endfunction
-
-function! s:VLDel(bn) abort
-  for id in nvim_buf_get_extmarks(a:bn, s:wpf.ns, 0, -1, {})
-    call nvim_buf_del_extmark(a:bn, s:wpf.ns, id[0])
-  endfor
-endfunction
-else
-function! s:VLAdd(bn, ln, ab) abort
-  call prop_add(a:ln, 0, {'type': s:wpf.tl, 'bufnr': a:bn, 'text': s:wpf.fs,
+  else
+    " in current vim, prop_add() does not work well with 'text_wrap:truncate'
+    " so truncate text here as a work around
+    "call prop_add(a:ln, 0, {'type': s:wpf.tl . '_' . a:op, 'bufnr': bn,
+          "\'text': s:wpf.ht[a:op][1], 'text_align': a:ab ? 'above': 'below'})
+    let wi = getwininfo((a:wn))[0]
+    let tc = wi.width - wi.textoff - (getwinvar(a:wn, '&list') ? 2 : 1)
+    call prop_add(a:ln, 0, {'type': s:wpf.tl . '_' . a:op, 'bufnr': bn,
+                                            \'text': s:wpf.ht[a:op][1][: tc],
                                       \'text_align': a:ab ? 'above': 'below'})
-endfunction
-
-function! s:VLDel(bn) abort
-  if !empty(prop_find({'type': s:wpf.tl, 'bufnr': a:bn, 'lnum': 1, 'col': 1}))
-    call prop_remove({'type': s:wpf.tl, 'bufnr': a:bn, 'all': 1})
   endif
 endfunction
-endif
+
+function! s:VLDel(wn) abort
+  let bn = winbufnr(a:wn)
+  if has('nvim')
+    for id in nvim_buf_get_extmarks(bn, s:wpf.ns, 0, -1, {})
+      call nvim_buf_del_extmark(bn, s:wpf.ns, id[0])
+    endfor
+  else
+    for tn in keys(s:wpf.ht)
+      let tn = s:wpf.tl . '_' . tn
+      if !empty(prop_find({'type': tn, 'bufnr': bn, 'lnum': 1, 'col': 1}))
+        call prop_remove({'type': tn, 'bufnr': bn, 'all': 1})
+      endif
+    endfor
+  endif
+endfunction
 
 let &cpoptions = s:save_cpo
 unlet s:save_cpo
