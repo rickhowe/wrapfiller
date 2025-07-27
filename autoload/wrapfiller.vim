@@ -1,9 +1,9 @@
 " wrapfiller.vim: Align each wrapped line virtually between windows
 "
-" Last Change: 2024/03/05
-" Version:     2.2
+" Last Change: 2025/07/27
+" Version:     2.3
 " Author:      Rick Howe (Takumi Ohtani) <rdcxy754@ybb.ne.jp>
-" Copyright:   (c) 2023-2024 Rick Howe
+" Copyright:   (c) 2023-2025 Rick Howe
 " License:     MIT
 
 let s:save_cpo = &cpoptions
@@ -17,9 +17,9 @@ for op in keys(s:op)
   let s:op[op].ev += [['WinScrolled', 'g'], ['OptionSet', 'g']]
 endfor
 
-function! wrapfiller#WrapFiller(op) abort
+function! wrapfiller#WrapFiller(op, ...) abort
   let wd = gettabinfo(tabpagenr())[0].windows
-  for op in keys(s:op) | call s:DelVirtLines(op, wd) | endfor
+  for op in keys(s:op) | call s:DelVirtLines(op, wd, a:0 ? a:1 : 1) | endfor
   if get(t:, 'WrapFiller', get(g:, 'WrapFiller', 1))
     for op in ['diff', 'list']
       let wx = filter(copy(wd), 'getwinvar(v:val, "&" . op)')
@@ -64,20 +64,38 @@ function! s:AddVirtLines(op, wd) abort
       if zz.fv < zz[wn].fv | let zz.fv = zz[wn].fv | endif
     endfor
     for wn in a:wd | call setwinvar(wn, '&foldlevel', zz.fv) | endfor
-    " find a common diff unhighlighted base start line between windows
+    " set first/last and top/bottom lines on each window
     let tb = {}
-    let [tn, bn] = [0, 0]
     for wn in a:wd
       let [fl, tl, bl, ll] = [1] + map(['w0', 'w$', '$'], 'line(v:val, wn)')
-      let wh = winheight(wn)
-      let [tl, bl] = [max([tl - wh, fl]), min([bl + wh, ll])]
-      let se = getwinvar(wn, s:wf(a:op))
-      if !empty(se)
-        let [fl, ll] = (se.sl <= tl) ? [se.sl, ll] : [fl, se.sl]
+      if &diffopt !~ 'linematch'
+        let wh = winheight(wn)
+        let [tl, bl] = [max([tl - wh, fl]), min([bl + wh, ll])]
       endif
-      let [tn, bn] += [tl - fl, ll - tl]
-      let tb[wn] = #{fl: fl, tl: tl, bl: bl, ll: ll}
+      while fl < tl
+        call win_execute(wn, 'let eh = s:GetPureLines(tl - 1, tl - 1)')
+        if !empty(eh) | let tl -= 1 | else | break | endif
+      endwhile
+      while bl < ll
+        call win_execute(wn, 'let eh = s:GetPureLines(bl + 1, bl + 1)')
+        if !empty(eh) | let bl += 1 | else | break | endif
+      endwhile
+      let se = getwinvar(wn, s:wf(a:op))
+      let tb[wn] = #{fl: fl, tl: tl, bl: bl, ll: ll, sl: empty(se) ? 0 : se.sl}
     endfor
+    " apply previous start line to fl/ll if tl is below/above it in all win
+    let [tn, bn] = [0, 0]
+    let sl = filter(map(filter(values(tb), '0 < v:val.sl'),
+                                        \'v:val.tl - v:val.sl'), 'v:val != 0')
+    for wn in a:wd
+      if 0 < tb[wn].sl
+        if 0 < min(sl) | let tb[wn].fl = tb[wn].sl
+        elseif max(sl) < 0 | let tb[wn].ll = tb[wn].sl
+        endif
+      endif
+      let [tn, bn] += [tb[wn].tl - tb[wn].fl, tb[wn].ll - tb[wn].tl]
+    endfor
+    " find a corresponding base start line between windows
     if tn <= bn
       for wn in a:wd
         call win_execute(wn, 'let eh = s:GetPureLines(tb[wn].fl, tb[wn].tl)')
@@ -86,27 +104,30 @@ function! s:AddVirtLines(op, wd) abort
       let ex = min(map(values(tb), 'v:val.en'))
       let zz.sx = (ex == 0)
       for wn in a:wd
-        let zz[wn].sl = (0 < ex) ? tb[wn].eh[ex - 1] : 1
+        let zz[wn].sl = (0 < ex) ? tb[wn].eh[ex - 1] : tb[wn].fl
         let zz[wn].el = tb[wn].bl
       endfor
     else
+      let ex = 1
       for wn in a:wd
         call win_execute(wn, 'let eh = s:GetPureLines(tb[wn].tl, tb[wn].ll)')
         let tb[wn].eh = eh | let tb[wn].en = len(eh)
+        if 0 < tb[wn].en && tb[wn].eh[0] == tb[wn].tl | let ex = 0 | endif
       endfor
-      let ex = max(map(values(tb), 'v:val.en')) + 1
+      let ex += max(map(values(tb), 'v:val.en'))
       let zz.sx = 0
       for wn in a:wd
-        let eh = []
         let tl = tb[wn].tl
         let rc = ex - tb[wn].en
         while 0 < rc
           let tl -= rc
-          call win_execute(wn, 'let dh = s:GetPureLines(tl, tl + rc - 1)')
-          let eh = dh + eh
-          let rc -= len(dh)
+          call win_execute(wn, 'let eh = (tl < tb[wn].fl) ?
+                  \repeat([tb[wn].fl], rc) : s:GetPureLines(tl, tl + rc - 1)')
+          let tb[wn].eh = eh + tb[wn].eh
+          let rc -= len(eh)
         endwhile
-        let [zz[wn].sl, zz.sx] = !empty(eh) ? [eh[0], zz.sx] : [1, 1]
+        let [zz[wn].sl, zz.sx] = !empty(tb[wn].eh) ? [tb[wn].eh[0], zz.sx] :
+                                                              \[tb[wn].fl, 1]
         let zz[wn].el = tb[wn].bl
       endfor
     endif
@@ -170,28 +191,30 @@ function! s:AddVirtLines(op, wd) abort
     let rx = max(values(rn)) + ml
     for wn in keys(rn)
       let rc = rx - rn[wn]
-      if 0 < rc | let vl[wn] += [[rc, lr[wn][ix][0]]] | endif
+      if 0 < rc | let vl[wn] += [[lr[wn][ix][0], rc]] | endif
     endfor
     let ix += 1
   endwhile
   " draw virtual lines and set wrapfiller variable on each window
   for wn in a:wd
     let wi = getwininfo(wn)[0]
-    let cn = s:op[a:op].cn
-    if cn < 0
-      let cn = wi.width - wi.textoff
-      if !has('nvim')
-        let cn -= (getwinvar(wn, '&list') &&
-              \getwinvar(wn, '&listchars') =~ 'eol')  " WA for a bug? in vim
+    if !empty(vl[wn])
+      let cn = s:op[a:op].cn
+      if cn < 0
+        let cn = wi.width - wi.textoff
+        if !has('nvim')
+          let cn -= (getwinvar(wn, '&list') &&
+                \getwinvar(wn, '&listchars') =~ 'eol')  " WA for a bug? in vim
+        endif
       endif
+      let [hl, tx] = [s:op[a:op].hl, repeat(s:op[a:op].ch, cn)]
+      for [ln, rc] in vl[wn]
+        while 0 < rc
+          call s:AddVL(a:op, wn, abs(ln), hl, tx)
+          let rc -= 1
+        endwhile
+      endfor
     endif
-    let [hl, tx] = [s:op[a:op].hl, repeat(s:op[a:op].ch, cn)]
-    for [rc, ln] in vl[wn]
-      while 0 < rc
-        call s:AddVL(a:op, wn, abs(ln), hl, tx)
-        let rc -= 1
-      endwhile
-    endfor
     call setwinvar(wn, s:wf(a:op), #{sl: zz[wn].sl, el: zz[wn].el,
                 \ww: wi.width, wh: wi.height, tl: wi.topline, bl: wi.botline,
                                                               \to: wi.textoff,
@@ -217,12 +240,12 @@ function! s:CountScreenRows(ln) abort
   return rc
 endfunction
 
-function! s:DelVirtLines(op, wd) abort
+function! s:DelVirtLines(op, wd, cl) abort
   for wn in a:wd
     let wv = getwinvar(wn, '')
     if has_key(wv, s:wf(a:op))
       call s:DelVL(a:op, wn)
-      unlet wv[s:wf(a:op)]
+      if a:cl | unlet wv[s:wf(a:op)] | endif
     endif
   endfor
 endfunction
@@ -278,7 +301,10 @@ function! s:UpdVirtLines(op, en) abort
       endif
     endif
   endfor
-  if 0 < ud | call wrapfiller#WrapFiller(a:op) | endif
+  if 0 < ud
+    call wrapfiller#WrapFiller(a:op,
+                          \(ev == 'WinScrolled' || ev == 'OptionSet') ? 0 : 1)
+  endif
 endfunction
 
 if has('nvim')

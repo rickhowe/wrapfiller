@@ -1,9 +1,9 @@
 *wrapfiller.txt* Align each wrapped line virtually between windows
 
-Last Change: 2024/03/05
-Version:     2.2
+Last Change: 2025/07/27
+Version:     2.3
 Author:      Rick Howe (Takumi Ohtani) <rdcxy754@ybb.ne.jp>
-Copyright:   (c) 2023-2024 Rick Howe
+Copyright:   (c) 2023-2025 Rick Howe
 License:     MIT
 
 -----------------------------------------------------------------------------
@@ -101,6 +101,10 @@ This plugin requires:
 
 -----------------------------------------------------------------------------
 CHANGE HISTORY                                         *wrapfiller-history*
+
+Update : 2.3
+* Improved to follow "linematch", if specified in the 'diffopt' option, and
+  check only the current visible lines to avoid mis-alignment of diff lines.
 
 Update : 2.2
 * Improved to check the autocommand events for the change of several options,

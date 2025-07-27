@@ -1,16 +1,16 @@
 " wrapfiller.vim: Align each wrapped line virtually between windows
 "
-" Last Change: 2024/03/05
-" Version:     2.2
+" Last Change: 2025/07/27
+" Version:     2.3
 " Author:      Rick Howe (Takumi Ohtani) <rdcxy754@ybb.ne.jp>
-" Copyright:   (c) 2023-2024 Rick Howe
+" Copyright:   (c) 2023-2025 Rick Howe
 " License:     MIT
 
 if exists('g:loaded_wrapfiller') ||
             \!(has('textprop') && has('patch-9.0.1067') || has('nvim-0.6.0'))
   finish
 endif
-let g:loaded_wrapfiller = 2.2
+let g:loaded_wrapfiller = 2.3
 
 let s:save_cpo = &cpoptions
 set cpo&vim
